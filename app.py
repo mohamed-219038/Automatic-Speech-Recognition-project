@@ -1,5 +1,6 @@
 import streamlit as st
 from transformers import pipeline
+import torch
 import torchaudio
 import tempfile
 import numpy as np
@@ -19,10 +20,15 @@ st.write("Upload an audio file to transcribe it into text using Wav2Vec2.")
 def load_model():
     return pipeline(
         task="automatic-speech-recognition",
-        model="facebook/wav2vec2-large-960h"
+        model="facebook/wav2vec2-base-960h"  # Using base model for faster loading
     )
 
-asr = load_model()
+try:
+    asr = load_model()
+    st.success("✅ Model loaded successfully!")
+except Exception as e:
+    st.error(f"❌ Error loading model: {e}")
+    st.stop()
 
 # Force torchaudio to use soundfile backend
 torchaudio.set_audio_backend("soundfile")
