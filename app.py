@@ -3,7 +3,6 @@ from transformers import pipeline
 import torchaudio
 import tempfile
 import numpy as np
-import sounddevice as sd
 import soundfile as sf
 
 # ---------------------------------------------------
@@ -11,7 +10,7 @@ import soundfile as sf
 # ---------------------------------------------------
 st.set_page_config(page_title="Speech-to-Text App", page_icon="🎤", layout="centered")
 st.title("🎙️ Speech-to-Text App")
-st.write("Record or upload an audio file to transcribe it into text using Wav2Vec2.")
+st.write("Upload an audio file to transcribe it into text using Wav2Vec2.")
 
 # ---------------------------------------------------
 # 2. Load ASR model
@@ -29,77 +28,67 @@ asr = load_model()
 torchaudio.set_audio_backend("soundfile")
 
 # ---------------------------------------------------
-# 3. Choose input type
+# 3. File upload section
 # ---------------------------------------------------
-st.subheader("Choose Audio Source")
-option = st.radio("Select an option:", ["🎧 Upload Audio", "🎤 Record from Microphone"])
+st.subheader("Upload Audio File")
+uploaded_file = st.file_uploader("Upload your audio file", type=["wav", "mp3", "flac", "m4a", "ogg"])
 
 temp_path = None
 
-# ---------------------------------------------------
-# 4. Upload Audio Mode
-# ---------------------------------------------------
-if option == "🎧 Upload Audio":
-    uploaded_file = st.file_uploader("Upload your audio file", type=["wav", "mp3", "flac", "m4a"])
-
-    if uploaded_file is not None:
-        st.audio(uploaded_file, format="audio/wav")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            tmp.write(uploaded_file.read())
-            temp_path = tmp.name
+if uploaded_file is not None:
+    # Display audio player
+    st.audio(uploaded_file, format="audio/wav")
+    
+    # Save uploaded file to temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(uploaded_file.read())
+        temp_path = tmp.name
 
 # ---------------------------------------------------
-# 5. Record Audio Mode
-# ---------------------------------------------------
-elif option == "🎤 Record from Microphone":
-    st.write("Press 'Start Recording' to begin and 'Stop Recording' to end.")
-    sample_rate = 16000
-
-    # Initialize session states
-    if "recording" not in st.session_state:
-        st.session_state.recording = False
-        st.session_state.audio_data = None
-
-    # Start Recording
-    if not st.session_state.recording:
-        if st.button("🎙️ Start Recording"):
-            st.session_state.recording = True
-            st.session_state.audio_data = sd.rec(
-                int(60 * sample_rate),  # up to 60s buffer
-                samplerate=sample_rate,
-                channels=1,
-                dtype="float32"
-            )
-            st.info("Recording... 🎤 Speak now!")
-    else:
-        # Stop Recording
-        if st.button("⏹️ Stop Recording"):
-            sd.stop()
-            st.session_state.recording = False
-            st.success("✅ Recording stopped!")
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                sf.write(tmp.name, st.session_state.audio_data, sample_rate)
-                temp_path = tmp.name
-
-            st.audio(temp_path, format="audio/wav")
-
-# ---------------------------------------------------
-# 6. Run ASR transcription
+# 4. Run ASR transcription
 # ---------------------------------------------------
 if temp_path:
     try:
-        waveform, sr = torchaudio.load(temp_path)
-        if sr != 16000:
-            resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)
-            waveform = resampler(waveform)
-
-        st.write("🔍 Transcribing, please wait...")
-        result = asr(waveform.squeeze().numpy())
+        with st.spinner("🔍 Transcribing, please wait..."):
+            # Load and preprocess audio
+            waveform, sr = torchaudio.load(temp_path)
+            
+            # Resample if necessary
+            if sr != 16000:
+                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)
+                waveform = resampler(waveform)
+            
+            # Convert to mono if stereo
+            if waveform.shape[0] > 1:
+                waveform = torch.mean(waveform, dim=0, keepdim=True)
+            
+            # Perform transcription
+            result = asr(waveform.squeeze().numpy())
+        
         st.success("✅ Transcription complete!")
-
         st.text_area("Transcribed Text", result["text"], height=200)
-        st.download_button("💾 Download Transcription", result["text"], file_name="transcription.txt")
+        
+        # Download button
+        st.download_button(
+            "💾 Download Transcription", 
+            result["text"], 
+            file_name="transcription.txt",
+            mime="text/plain"
+        )
 
     except Exception as e:
         st.error(f"⚠️ Error processing audio: {e}")
+        st.info("💡 Try uploading a different audio file format (WAV, MP3, FLAC)")
+
+# ---------------------------------------------------
+# 5. Additional information
+# ---------------------------------------------------
+st.markdown("---")
+st.subheader("ℹ️ Instructions")
+st.markdown("""
+1. Upload an audio file (WAV, MP3, FLAC, M4A, or OGG format)
+2. Wait for the transcription to complete
+3. Copy the text or download it as a file
+
+**Note:** For best results, use clear audio with minimal background noise.
+""")
